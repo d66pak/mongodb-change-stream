@@ -1,0 +1,22 @@
+.project
+.pydevproject
+config/*.pyc
+src/*.pyc
+dataOut/*
+!dataOut/.gitkeep
+dataIn/*/*
+!dataIn/*/.gitkeep
+log/*/*
+!log/*/.gitkeep
+__pycache__
+
+# IntelliJ
+.idea/
+*.iml
+
+# virtualenv
+.venv/
+venv/
+ENV/
+virtual_env/*
+packer/*.retry
