@@ -1,0 +1,66 @@
+---
+- name: Provision Python
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: Boostrap python
+      raw: test -e /usr/bin/python || (apt-get -y update && apt-get install -y python-minimal && apt-get install -y python3-minimal)
+
+- name: Provision image
+  hosts: all
+  become: yes
+  become_user: root
+  pre_tasks:
+    - name: Include variables
+      include_vars:
+         file: variables.yml
+  tasks:
+    - name: Apt install packages
+      apt:
+        name: "{{ packages }}"
+        update_cache: yes
+
+    - name: Upgrade pip
+      pip:
+        name: pip
+        state: latest
+
+    - name: Pip install virtualenv
+      pip:
+        name: virtualenv
+
+    - name: Pip install packages
+      pip:
+        name: "{{ python_packages }}"
+        virtualenv: "{{ remote_home }}/venv"
+        virtualenv_python: python3.6
+
+    - name: Set timezone
+      file:
+        src: "/usr/share/zoneinfo/{{ Timezone }}"
+        dest: /etc/localtime
+        state: link
+        force: yes
+
+    - name: Ensure .ssh directory exists.
+      file:
+        path: "{{ remote_home }}/.ssh"
+        state: directory
+        mode: 0700
+        owner: root
+        group: root
+
+    - name: Copy mongo watcher to remote home
+      copy:
+        src: /tmp/mongo_watcher.py
+        dest: "{{ remote_home }}/mongo_watcher.py"
+        owner: root
+        group: root
+        remote_src: yes
+
+    - name: Delete unwanted files
+      file:
+        path: "{{ item }}"
+        state: absent
+      with_items:
+        - /tmp/mongo_watcher.py

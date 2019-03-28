@@ -1,0 +1,35 @@
+{
+  "builders": [
+    {
+      "type": "docker",
+      "image": "ubuntu",
+      "commit": true,
+      "changes": [
+        "WORKDIR /root",
+        "CMD venv/bin/python mongo_watcher.py"
+      ]
+    }
+  ],
+  "provisioners": [
+    {
+      "type": "file",
+      "source": "{{template_dir}}/../mongo_watcher.py",
+      "destination": "/tmp/"
+    },
+    {
+      "type": "ansible",
+      "user": "root",
+      "playbook_file": "{{template_dir}}/provision.yml",
+      "extra_arguments": [ "-v", "--extra-vars", "Region={{user `aws_region`}} Timezone={{user `timezone`}}" ]
+    }
+  ],
+  "post-processors": [
+    [
+      {
+        "type": "docker-tag",
+        "repository": "2ki/mongo-change-stream",
+        "tag": "latest"
+      }
+    ]
+  ]
+}
