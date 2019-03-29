@@ -15,20 +15,22 @@
 
 ## Creating container image
 * Packer and Ansible are used to build Docker image.
-
+* Note that you might need to create a new repository in ECR (Amazon Elastic Container Registry) for the first time.
+* Here's the command to create repository in ECR
+  ```bash
+  aws ecr create-repository --repository-name 2ki/mongo-change-stream --profile default
+  ```
 * Here's the command to create an image:
   ```bash
-  packer build -var 'aws_region=ap-southeast-2' -var 'timezone=Australia/ACT' change_stream.json
+  packer build -var 'aws_region=ap-southeast-2' -var 'timezone=Australia/ACT' -var 'aws_account_id=111111111111' change_stream.json
   ```
-
 * The image will be build and pushed to Amazon Elastic Container registry.
-
 * Packer config [change_stream.json](./packer/change_stream.json) runs the Ansible provisioner [provision.yml](./packer/provision.yml). Both of them are quiet straight forward to understand with basic Packer and Ansible knowledge.
 
 ## How to test your changes locally?
 * Create an docker image:
     ```bash
-    packer build -var 'aws_region=ap-southeast-2' -var 'timezone=Australia/ACT' change_stream_test.json
+    packer build -var 'aws_region=ap-southeast-2' -var 'timezone=Australia/ACT' change_stream_local.json
     ```
 * Once the image is created it will be tagged as 'latest'.
 * Run the image using [change_stream_start.sh](./packer/change_stream_start.sh) script.
