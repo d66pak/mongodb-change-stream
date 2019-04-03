@@ -20,3 +20,6 @@ venv/
 ENV/
 virtual_env/*
 packer/*.retry
+
+# Terraform
+.terraform
