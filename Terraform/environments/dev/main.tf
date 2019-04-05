@@ -11,6 +11,17 @@
 #--------------------------------------------------------------
 data "aws_caller_identity" "current" {}
 
+resource "aws_kinesis_stream" "raw" {
+  name             = "${var.kinesis_stream_name}-${var.env_tag}"
+  shard_count      = "${var.kinesis_shard_count}"
+  retention_period = "${var.kinesis_retention_period}"
+
+  tags {
+    Environment = "${var.env_tag}"
+  }
+}
+
+# This role is required by tasks to pull container images and publish container logs to Amazon CloudWatch.
 resource "aws_iam_role" "task_exec" {
   description = "ECS task execution role."
   name        = "MongoCSFargate-TaskExecutionRole-${var.env_tag}"
@@ -57,6 +68,50 @@ resource "aws_iam_role_policy" "ssm" {
 EOF
 }
 
+# IAM role that tasks can use to make API requests to authorized AWS services.
+# This is the IAM role that containers in this task can assume.
+resource "aws_iam_role" "task" {
+  description = "ECS task role."
+  name        = "MongoCSFargate-TaskRole-${var.env_tag}"
+
+  assume_role_policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "",
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "ecs-tasks.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+EOF
+}
+resource "aws_iam_role_policy" "kinesis_stream" {
+  name  = "KinesisStream"
+  role  = "${aws_iam_role.task.id}"
+
+  policy = <<EOF
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "kinesis:PutRecord",
+                "kinesis:PutRecords",
+                "kinesis:DescribeStream"
+            ],
+            "Resource": "${aws_kinesis_stream.raw.arn}"
+        }
+    ]
+}
+EOF
+}
+
 resource "aws_security_group" "ecs" {
   name        = "MongoCSFargate-${var.env_tag}"
   description = "Security group for Fargate MongoDB Change Stream"
@@ -97,6 +152,7 @@ resource "aws_ecs_task_definition" "mongo" {
   cpu                      = "${lookup(var.fargate_cpu, element(var.collections_to_watch, count.index), "256")}"
   memory                   = "${lookup(var.fargate_memory, element(var.collections_to_watch, count.index), "512")}"
   network_mode             = "awsvpc"
+  task_role_arn            = "${aws_iam_role.task.arn}"
   execution_role_arn       = "${aws_iam_role.task_exec.arn}"
   requires_compatibilities = ["FARGATE"]
 
@@ -108,12 +164,14 @@ resource "aws_ecs_task_definition" "mongo" {
     "cpu"    :  ${lookup(var.fargate_cpu, element(var.collections_to_watch, count.index), "256")},
     "memory" :  ${lookup(var.fargate_memory, element(var.collections_to_watch, count.index), "512")},
     "environment" : [
-      { "name" : "AWS_DEFAULT_REGION", "value" : "${var.aws_region}" },
-      { "name" : "LOG_LEVEL",          "value" : "${lookup(var.log_level, element(var.collections_to_watch, count.index), "INFO")}" },
-      { "name" : "MONGODB_URI",        "value" : "${var.mongodb_uri[element(var.collections_to_watch, count.index)]}" },
-      { "name" : "MONGODB_USERNAME",   "value" : "${var.mongodb_username[element(var.collections_to_watch, count.index)]}" },
-      { "name" : "MONGODB_DATABASE",   "value" : "${var.mongodb_database[element(var.collections_to_watch, count.index)]}" },
-      { "name" : "MONGODB_COLLECTION", "value" : "${element(var.collections_to_watch, count.index)}" }
+      { "name" : "AWS_DEFAULT_REGION",  "value" : "${var.aws_region}" },
+      { "name" : "LOG_LEVEL",           "value" : "${lookup(var.log_level, element(var.collections_to_watch, count.index), "INFO")}" },
+      { "name" : "MONGODB_URI",         "value" : "${var.mongodb_uri[element(var.collections_to_watch, count.index)]}" },
+      { "name" : "MONGODB_USERNAME",    "value" : "${var.mongodb_username[element(var.collections_to_watch, count.index)]}" },
+      { "name" : "MONGODB_DATABASE",    "value" : "${var.mongodb_database[element(var.collections_to_watch, count.index)]}" },
+      { "name" : "MONGODB_COLLECTION",  "value" : "${element(var.collections_to_watch, count.index)}" },
+      { "name" : "OUT_KINESIS_STREAM",  "value" : "${aws_kinesis_stream.raw.name}" },
+      { "name" : "KINESIS_PUT_RETRIES", "value" : "${lookup(var.kinesis_put_retries, element(var.collections_to_watch, count.index), "3")}" }
     ],
     "secrets": [
       {

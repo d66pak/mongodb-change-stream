@@ -1,6 +1,5 @@
 """ MongoDB watcher using change streams. """
 import os
-import ast
 import boto3
 import pymongo
 import logging
@@ -26,7 +25,8 @@ def watch_and_push():
     mongodb_password = os.environ['MONGODB_PASSWORD']
     mongodb_database = os.environ['MONGODB_DATABASE']
     mongodb_collection = os.environ['MONGODB_COLLECTION']
-    l_out_kinesis_streams = set(ast.literal_eval(os.environ.get('OUT_KINESIS_STREAMS', '[]')))
+    out_kinesis_stream = os.environ['OUT_KINESIS_STREAM']
+    kinesis_put_retries = int(os.environ.get('KINESIS_PUT_RETRIES', '3'))
 
     watcher = Watcher(
         uri=mongodb_uri,
@@ -39,11 +39,19 @@ def watch_and_push():
     # Confirm we can talk to MongoDB before starting threads (excepts on auth failure)
     LOG.info(watcher.mongodb_client.server_info())
 
+    # Create publisher
+    publisher = Publisher()
+
     for d_doc in watcher.watch():
-        LOG.info(dumps(d_doc))
+        try:
+            seq = publisher.publish(d_doc, out_kinesis_stream, kinesis_put_retries)
+        except Exception as e:
+            LOG.error(e)
+            break
+        LOG.info('%s = %s', seq, dumps(d_doc))
 
     watcher.close()
-    LOG.info('---------')
+    LOG.info('------------------------ STOPPING WATCHER ------------------------')
 
 
 class Watcher(object):
@@ -93,6 +101,32 @@ class Watcher(object):
 
     def close(self):
         self.mongodb_client.close()
+
+
+class Publisher(object):
+    """
+    Publisher writes raw records to Kinesis stream.
+    """
+
+    def __init__(self):
+        self.client = boto3.client('kinesis')
+
+    def publish(self, d_record, kinesis_stream, max_retry_count):
+        retry_count = max_retry_count
+        while retry_count > 0:
+            res = None
+            try:
+                res = self.client.put_record(StreamName=kinesis_stream,
+                                             Data=dumps(d_record),
+                                             PartitionKey='1')
+            except Exception as e:
+                LOG.warning('Failed to put record to kinesis stream %s, ERROR: %s', kinesis_stream, e)
+            retry_count -= 1
+            if res and res['SequenceNumber']:
+                return res['SequenceNumber']
+
+        # If control reaches here, put_record() has exhausted all the retries. Raise exception.
+        raise Exception('Kinesis put_record failed even after retires')
 
 
 if __name__ == '__main__':

@@ -39,6 +39,19 @@ variable "ssm_key" {
   default     = "/mongodb/readonly"
 }
 
+variable "kinesis_stream_name" {
+  description = "A name to identify the stream. This is unique to the AWS account and region the Stream is created in."
+  default = "out_kinesis_stream"
+}
+variable "kinesis_shard_count" {
+  description = "The number of shards that the stream will use."
+  default = 1
+}
+variable "kinesis_retention_period" {
+  description = "Length of time (in hours) data records are accessible after they are added to the stream."
+  default = 48
+}
+
 variable "collections_to_watch" {
   description = "MongoDB collections to watch"
   type         = "list"
@@ -107,6 +120,15 @@ variable "mongodb_database" {
   default = {
     Customers = "test_db"
     Orderlines = "test_db"
+  }
+}
+variable "kinesis_put_retries" {
+  description = "Max attempts to put records into Kinesis stream"
+  type = "map"
+
+  default = {
+    Customers = "5"
+    Orderlines = "5"
   }
 }
 
