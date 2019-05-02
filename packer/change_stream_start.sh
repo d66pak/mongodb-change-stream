@@ -7,11 +7,11 @@
 AWS_DEFAULT_REGION="ap-southeast-2"
 
 LOG_LEVEL="DEBUG"
-MONGODB_URI="mongodb+srv://dns-srv.mongodb.net/test?authSource=admin"
-MONGODB_USERNAME="username"
-MONGODB_PASSWORD="password"
-MONGODB_DATABASE="database"
-MONGODB_COLLECTION="collection"
+MONGODB_URI="mongodb+srv://<dns-server-url>/<db>?authSource=<auth_db>"
+MONGODB_USERNAME="<username>"
+MONGODB_PASSWORD="<password>"
+MONGODB_DATABASE="<db>"
+MONGODB_COLLECTION="<collection>"
 
 # Use:
 # -d option to run in background

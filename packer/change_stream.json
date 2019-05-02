@@ -64,6 +64,10 @@
     {
         "type": "shell-local",
         "inline": ["docker rmi {{user `aws_account_id`}}.dkr.ecr.{{user `aws_region`}}.amazonaws.com/2ki/mongo-change-stream:{{user `image_tag`}}"]
+    },
+    {
+      "type": "shell-local",
+      "inline": ["echo {{user `image_tag`}} > image_tag "]
     }
   ]
 }

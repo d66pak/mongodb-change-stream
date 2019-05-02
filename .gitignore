@@ -23,3 +23,6 @@ packer/*.retry
 
 # Terraform
 .terraform
+
+# image tag
+packer/image_tag
