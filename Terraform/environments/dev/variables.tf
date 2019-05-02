@@ -1,14 +1,13 @@
 #--------------------------------------------------------------
 # Variables used by all the *.tf
 #--------------------------------------------------------------
-
-variable "package_file" {
-  description = "Lambda Zip file name; must be under 'build' directory"
-  default     = ""
-}
 variable "env_tag" {
   description = "Suffix to be appended to aws resouce name"
-  default = "Dev_Au"
+  default = "Dev"
+}
+variable "project_tag" {
+  description = "Common project tag used across all the resources."
+  default = "mongo-change-stream"
 }
 variable "aws_region" {
   default = "ap-southeast-2"
@@ -16,13 +15,39 @@ variable "aws_region" {
 variable "aws_profile" {
   default = "default"
 }
-
+variable "ecr_repo_name" {
+  description = "ECR repository name."
+  default = "2ki/mongo-change-stream"
+}
 variable "vpc_id" {
-  default = "vpc-cxxxxxx"
+  description = "VPC id"
+  default = "vpc-ca9c8fa8"
 }
 variable "subnet_ids" {
+  description = "Subnet id list"
   type = "list"
-  default = ["subnet-axxxxxxx"]
+  default = ["subnet-a9043edd"]
+}
+variable "security_group_name" {
+  description = "Name of AWS security group"
+  default = "MongoCSFargate"
+}
+
+variable "fargate_task_role_name" {
+  description = "Task role name for Fargate container"
+  default = "MongoDBChangeStreamTaskRole"
+}
+variable "fargate_task_execution_role_name" {
+  description = "Task execution role name for Fargate tasks"
+  default = "MongoDBChangeStreamTaskExecRole"
+}
+variable "fargate_log_group_prefix" {
+  description = "Prefix path for AWS log group"
+  default = "2ki/MongoCSFargate"
+}
+variable "fargate_cluster_name" {
+  description = "Fargate cluster name"
+  default = "FargateCluster"
 }
 
 variable "app_image" {
@@ -34,20 +59,16 @@ variable "ssm_key_prefix" {
   description = "SSM key prefix to grant access"
   default     = "/mongodb/*"
 }
-variable "ssm_key" {
-  description = "SSM key name"
-  default     = "/mongodb/readonly"
-}
 
-variable "kinesis_stream_name" {
+variable "raw_kinesis_stream_name" {
   description = "A name to identify the stream. This is unique to the AWS account and region the Stream is created in."
   default = "out_kinesis_stream"
 }
-variable "kinesis_shard_count" {
+variable "raw_kinesis_shard_count" {
   description = "The number of shards that the stream will use."
   default = 1
 }
-variable "kinesis_retention_period" {
+variable "raw_kinesis_retention_period" {
   description = "Length of time (in hours) data records are accessible after they are added to the stream."
   default = 48
 }
@@ -56,7 +77,7 @@ variable "collections_to_watch" {
   description = "MongoDB collections to watch"
   type         = "list"
 
-  default = ["Customers", "Orderlines"]
+  default = ["CollectionA", "CollectionB"]
 }
 
 variable "fargate_cpu" {
@@ -64,8 +85,8 @@ variable "fargate_cpu" {
   type = "map"
 
   default = {
-    Customers = "256"
-    Orderlines = "256"
+    CollectionA = "256"
+    CollectionB = "256"
   }
 }
 variable "fargate_memory" {
@@ -73,8 +94,8 @@ variable "fargate_memory" {
   type = "map"
 
   default = {
-    Customers = "512"
-    Orderlines = "512"
+    CollectionA = "512"
+    CollectionB = "512"
   }
 }
 variable "log_retintion_days" {
@@ -82,8 +103,8 @@ variable "log_retintion_days" {
   type = "map"
 
   default = {
-    Customers = "3"
-    Orderlines = "3"
+    CollectionA = "3"
+    CollectionB = "3"
   }
 }
 variable "log_level" {
@@ -91,8 +112,8 @@ variable "log_level" {
   type = "map"
 
   default = {
-    Customers = "DEBUG"
-    Orderlines = "DEBUG"
+    CollectionA = "DEBUG"
+    CollectionB = "DEBUG"
   }
 }
 variable "mongodb_uri" {
@@ -100,8 +121,8 @@ variable "mongodb_uri" {
   type = "map"
 
   default = {
-    Customers = "mongodb+srv://mongo-dev-kfz7z.gcp.mongodb.net/test?authSource=admin"
-    Orderlines = "mongodb+srv://mongo-dev-kfz7z.gcp.mongodb.net/test?authSource=admin"
+    CollectionA = "mongodb+srv://test-dev-kfz7z.gcp.mongodb.net/test?authSource=admin"
+    CollectionB = "mongodb+srv://test-dev-kfz7z.gcp.mongodb.net/test?authSource=admin"
   }
 }
 variable "mongodb_username" {
@@ -109,8 +130,8 @@ variable "mongodb_username" {
   type = "map"
 
   default = {
-    Customers = "read-only"
-    Orderlines = "read-only"
+    CollectionA = "read-only_username"
+    CollectionB = "read-only_username"
   }
 }
 variable "mongodb_database" {
@@ -118,8 +139,17 @@ variable "mongodb_database" {
   type = "map"
 
   default = {
-    Customers = "test_db"
-    Orderlines = "test_db"
+    CollectionA = "test"
+    CollectionB = "test"
+  }
+}
+variable "ssm_key_name" {
+  description = "SSM full key name for each collection"
+  type = "map"
+
+  default = {
+    CollectionA = "/mongodb/readonly"
+    CollectionB = "/mongodb/readonly"
   }
 }
 variable "kinesis_put_retries" {
@@ -127,9 +157,14 @@ variable "kinesis_put_retries" {
   type = "map"
 
   default = {
-    Customers = "5"
-    Orderlines = "5"
+    CollectionA = "5"
+    CollectionB = "5"
   }
+}
+
+variable "dynamodb_table_name" {
+  description = "Name of the DynamoDB table to store MongoDB record ids"
+  default = "MongoDBChangeStreamTracker"
 }
 
 variable "terraform_state_s3_root" {

@@ -10,28 +10,51 @@
 # https://docs.aws.amazon.com/systems-manager/latest/userguide/sysman-paramstore-access.html
 #--------------------------------------------------------------
 data "aws_caller_identity" "current" {}
+data "aws_ecr_repository" "mongo_cs" {
+  name = "${var.ecr_repo_name}"
+}
+data "local_file" "image_tag" {
+  filename = "${path.root}/../../../packer/image_tag"
+}
 
 resource "aws_kinesis_stream" "raw" {
-  name             = "${var.kinesis_stream_name}-${var.env_tag}"
-  shard_count      = "${var.kinesis_shard_count}"
-  retention_period = "${var.kinesis_retention_period}"
+  name             = "${var.raw_kinesis_stream_name}-${var.env_tag}"
+  shard_count      = "${var.raw_kinesis_shard_count}"
+  retention_period = "${var.raw_kinesis_retention_period}"
 
   tags {
-    Environment = "${var.env_tag}"
+    Environment = "${lower(var.env_tag)}"
+    Project     = "${format("%s-%s", lower(var.project_tag), lower(var.env_tag))}"
+  }
+}
+
+resource "aws_dynamodb_table" "mongo_tracker" {
+  name           = "${var.dynamodb_table_name}-${var.env_tag}"
+  billing_mode   = "PAY_PER_REQUEST"
+  hash_key      = "collectionName"
+
+  attribute {
+    name = "collectionName"
+    type = "S"
+  }
+
+  tags = {
+    Name        = "${var.dynamodb_table_name}-${var.env_tag}"
+    Environment = "${lower(var.env_tag)}"
+    Project     = "${format("%s-%s", lower(var.project_tag), lower(var.env_tag))}"
   }
 }
 
 # This role is required by tasks to pull container images and publish container logs to Amazon CloudWatch.
 resource "aws_iam_role" "task_exec" {
   description = "ECS task execution role."
-  name        = "MongoCSFargate-TaskExecutionRole-${var.env_tag}"
+  name        = "${var.fargate_task_execution_role_name}-${var.env_tag}"
 
   assume_role_policy = <<EOF
 {
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "",
       "Effect": "Allow",
       "Principal": {
         "Service": "ecs-tasks.amazonaws.com"
@@ -41,6 +64,10 @@ resource "aws_iam_role" "task_exec" {
   ]
 }
 EOF
+
+  tags {
+    Project = "${format("%s-%s", lower(var.project_tag), lower(var.env_tag))}"
+  }
 }
 resource "aws_iam_role_policy_attachment" "task_exec_service" {
   role       = "${aws_iam_role.task_exec.id}"
@@ -60,7 +87,7 @@ resource "aws_iam_role_policy" "ssm" {
         "ssm:GetParameters"
       ],
       "Resource": [
-        "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.ssm_key_prefix}"
+        "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${var.ssm_key_prefix}"
       ]
     }
   ]
@@ -72,14 +99,13 @@ EOF
 # This is the IAM role that containers in this task can assume.
 resource "aws_iam_role" "task" {
   description = "ECS task role."
-  name        = "MongoCSFargate-TaskRole-${var.env_tag}"
+  name        = "${var.fargate_task_role_name}-${var.env_tag}"
 
   assume_role_policy = <<EOF
 {
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "",
       "Effect": "Allow",
       "Principal": {
         "Service": "ecs-tasks.amazonaws.com"
@@ -89,6 +115,10 @@ resource "aws_iam_role" "task" {
   ]
 }
 EOF
+
+  tags {
+    Project = "${format("%s-%s", lower(var.project_tag), lower(var.env_tag))}"
+  }
 }
 resource "aws_iam_role_policy" "kinesis_stream" {
   name  = "KinesisStream"
@@ -111,14 +141,36 @@ resource "aws_iam_role_policy" "kinesis_stream" {
 }
 EOF
 }
+resource "aws_iam_role_policy" "dynamodb" {
+  name  = "DynamoDBWrite"
+  role  = "${aws_iam_role.task.id}"
+
+  policy = <<EOF
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "dynamodb:PutItem",
+                "dynamodb:GetItem",
+                "dynamodb:UpdateItem"
+            ],
+            "Resource": "${aws_dynamodb_table.mongo_tracker.arn}"
+        }
+    ]
+}
+EOF
+}
 
 resource "aws_security_group" "ecs" {
-  name        = "MongoCSFargate-${var.env_tag}"
+  name        = "${var.security_group_name}-${var.env_tag}"
   description = "Security group for Fargate MongoDB Change Stream"
   vpc_id      = "${var.vpc_id}"
 
   tags {
-    Name = "MongoCSFargate-${var.env_tag}"
+    Name      = "${var.security_group_name}-${var.env_tag}"
+    Project   = "${format("%s-%s", lower(var.project_tag), lower(var.env_tag))}"
   }
 }
 resource "aws_security_group_rule" "allow-outbound" {
@@ -133,21 +185,28 @@ resource "aws_security_group_rule" "allow-outbound" {
 
 resource "aws_cloudwatch_log_group" "ecs" {
   count             = "${length(var.collections_to_watch)}"
-  name              = "/ecs/2ki/MongoChangeStreamWatcher/${element(var.collections_to_watch, count.index)}"
+
+  name              = "/ecs/${var.fargate_log_group_prefix}/${element(var.collections_to_watch, count.index)}"
   retention_in_days = "${lookup(var.log_retintion_days, element(var.collections_to_watch, count.index), "2")}"
   tags = {
     Environment = "${var.env_tag}"
     Collection  = "${element(var.collections_to_watch, count.index)}"
+    Project     = "${format("%s-%s", lower(var.project_tag), lower(var.env_tag))}"
   }
 }
 
 
 resource "aws_ecs_cluster" "main" {
-  name = "FargateMarketplaceCluster-${var.env_tag}"
+  name = "${var.fargate_cluster_name}-${var.env_tag}"
+
+  tags {
+    Project = "${format("%s-%s", lower(var.project_tag), lower(var.env_tag))}"
+  }
 }
 
 resource "aws_ecs_task_definition" "mongo" {
   count                    = "${length(var.collections_to_watch)}"
+
   family                   = "${element(var.collections_to_watch, count.index)}-ChangeStreamWatcher"
   cpu                      = "${lookup(var.fargate_cpu, element(var.collections_to_watch, count.index), "256")}"
   memory                   = "${lookup(var.fargate_memory, element(var.collections_to_watch, count.index), "512")}"
@@ -160,7 +219,7 @@ resource "aws_ecs_task_definition" "mongo" {
 [
   {
     "name"   : "${element(var.collections_to_watch, count.index)}-Watcher",
-    "image"  : "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/${var.app_image}",
+    "image"  : "${data.aws_ecr_repository.mongo_cs.repository_url}:${chomp(data.local_file.image_tag.content)}",
     "cpu"    :  ${lookup(var.fargate_cpu, element(var.collections_to_watch, count.index), "256")},
     "memory" :  ${lookup(var.fargate_memory, element(var.collections_to_watch, count.index), "512")},
     "environment" : [
@@ -171,12 +230,13 @@ resource "aws_ecs_task_definition" "mongo" {
       { "name" : "MONGODB_DATABASE",    "value" : "${var.mongodb_database[element(var.collections_to_watch, count.index)]}" },
       { "name" : "MONGODB_COLLECTION",  "value" : "${element(var.collections_to_watch, count.index)}" },
       { "name" : "OUT_KINESIS_STREAM",  "value" : "${aws_kinesis_stream.raw.name}" },
-      { "name" : "KINESIS_PUT_RETRIES", "value" : "${lookup(var.kinesis_put_retries, element(var.collections_to_watch, count.index), "3")}" }
+      { "name" : "KINESIS_PUT_RETRIES", "value" : "${lookup(var.kinesis_put_retries, element(var.collections_to_watch, count.index), "3")}" },
+      { "name" : "DYNAMODB_TABLE_NAME", "value" : "${aws_dynamodb_table.mongo_tracker.name}" }
     ],
     "secrets": [
       {
         "name"      : "MONGODB_PASSWORD",
-        "valueFrom" : "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.ssm_key}"
+        "valueFrom" : "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${var.ssm_key_name[element(var.collections_to_watch, count.index)]}"
       }
     ],
     "logConfiguration": {
@@ -190,10 +250,15 @@ resource "aws_ecs_task_definition" "mongo" {
   }
 ]
 EOF
+
+  tags {
+    Project = "${format("%s-%s", lower(var.project_tag), lower(var.env_tag))}"
+  }
 }
 
-resource "aws_ecs_service" "mongo-cs" {
+resource "aws_ecs_service" "mongo_cs" {
   count           = "${length(var.collections_to_watch)}"
+
   name            = "MongoChangeStreamWatcher-${element(var.collections_to_watch, count.index)}"
   cluster         = "${aws_ecs_cluster.main.id}"
   task_definition = "${element(aws_ecs_task_definition.mongo.*.arn, count.index)}"

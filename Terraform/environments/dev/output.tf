@@ -26,7 +26,7 @@ output "this_ecs_task_definitions" {
   value = "${aws_ecs_task_definition.mongo.*.id}"
 }
 output "this_ecs_service_names" {
-  value = "${aws_ecs_service.mongo-cs.*.name}"
+  value = "${aws_ecs_service.mongo_cs.*.name}"
 }
 
 output "raw_kinesis_stream_name" {
@@ -37,4 +37,10 @@ output "raw_kinesis_stream_shard_count" {
 }
 output "raw_kinesis_stream_retention_period" {
   value = "${aws_kinesis_stream.raw.retention_period}"
+}
+output "mongo_tracker_dynamodb_table_name" {
+  value = "${aws_dynamodb_table.mongo_tracker.name}"
+}
+output "mongo_tracker_dynamodb_table_hash_key" {
+  value = "${aws_dynamodb_table.mongo_tracker.hash_key}"
 }
